@@ -1,0 +1,407 @@
+
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+import requests
+from datetime import datetime, timedelta, timezone
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def abrir_janela_principal():
+    janela_principal.deiconify()
+    janela_inicial.destroy()
+
+def sair_aplicacao():
+    janela_inicial.destroy()
+
+# Janela inicial
+janela_inicial = tk.Tk()
+janela_inicial.title('Página Inicial')
+
+frame_inicial = ttk.Frame(janela_inicial, padding="20")
+frame_inicial.grid(column=0, row=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+# Carregar imagens
+imagem_sol = Image.open("74705e67-0b3f-4271-b87e-3f25a7663c81.jpg")  # Substitua pelo caminho do arquivo de imagem do sol
+imagem_sol = imagem_sol.resize((100, 100), Image.BILINEAR)
+sol = ImageTk.PhotoImage(imagem_sol)
+
+# Criar rótulo para o sol
+rotulo_sol = ttk.Label(frame_inicial, image=sol)
+rotulo_sol.grid(column=0, row=1, padx=10, pady=10)
+
+# Criar rótulo para o texto "API GRUPO 106"
+fonte_grande = ('Arial', 24)
+rotulo_api_grupo = ttk.Label(frame_inicial, text='API GRUPO 106', font=fonte_grande)
+rotulo_api_grupo.grid(column=1, row=1, padx=10, pady=10)
+
+
+# Criar botões
+botao_escolher_cidade = ttk.Button(frame_inicial, text='Escolher Cidade', command=abrir_janela_principal, width=20)
+botao_escolher_cidade.grid(column=0, row=2, padx=10, pady=10)
+
+botao_sair = ttk.Button(frame_inicial, text='Sair', command=sair_aplicacao, width=20)
+botao_sair.grid(column=2, row=2, padx=10, pady=10)
+
+# Janela principal
+janela_principal = tk.Toplevel()
+janela_principal.title('Página Principal')
+janela_principal.geometry('600x400')
+janela_principal.withdraw()
+
+frame_principal = ttk.Frame(janela_principal, padding="20")
+frame_principal.grid(column=0, row=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+botao_voltar = ttk.Button(frame_principal, text='Voltar', command=janela_inicial.deiconify)
+botao_voltar.grid(column=0, row=0, padx=10, pady=10)
+
+# Executar o loop da janela inicial
+janela_inicial.mainloop()
+
+
+
+# Lista para armazenar as últimas leituras
+last_temperature = None
+last_pressure = None
+last_humidity = None
+last_wind_speed = None
+detected_changes = []
+
+historico_probabilidade = {
+    'Precipitação': [0.1, 0.15, 0.2, 0.25, 0.3],  # Exemplo de probabilidade de tempestade para diferentes condições
+    'Incêndio': [0.05, 0.1, 0.15, 0.2, 0.25],  # Exemplo de probabilidade de incêndio para diferentes condições
+    # Adicione outras catástrofes aqui
+}
+
+def mostrar_cidade():
+    cidade = entrada_cidade.get()
+    resultado_cidade.config(text=f'Inseriste a cidade: {cidade}')
+
+def verificar_mudancas(temp_atual, pressao_atual, umidade_atual, velocidade_vento_atual):
+    global last_temperature, last_pressure, last_humidity, last_wind_speed
+
+    if last_temperature is not None:
+        # Calcular diferenças entre os dados atuais e os dados anteriores
+        diff_temp = abs(temp_atual - last_temperature)
+        diff_pressao = abs(pressao_atual - last_pressure)
+        diff_umidade = abs(umidade_atual - last_humidity)
+        diff_velocidade_vento = abs(velocidade_vento_atual - last_wind_speed)
+
+        # Definir critérios para alerta (exemplo)
+        threshold_temp = 2  # Mudança de temperatura em graus Celsius
+        threshold_pressao = 100  # Mudança de pressão em hPa
+        threshold_umidade = 40  # Mudança de umidade em porcentagem
+        threshold_velocidade_vento = 10  # Mudança de velocidade do vento em km/h
+
+        # Verificar se as mudanças excedem os limites
+        if diff_temp > threshold_temp or diff_pressao > threshold_pressao or diff_umidade > threshold_umidade or diff_velocidade_vento > threshold_velocidade_vento:
+            # Atualizar os valores das últimas leituras
+            last_temperature = temp_atual
+            last_pressure = pressao_atual
+            last_humidity = umidade_atual
+            last_wind_speed = velocidade_vento_atual
+            # Armazenar mudanças detectadas
+            detected_changes.append(
+                f'Temperatura: {temp_atual:.2f} °C, Pressão: {pressao_atual} hPa, Humidade: {umidade_atual}%, Velocidade do Vento: {velocidade_vento_atual} km/h')
+            # Emitir alerta
+            return True
+    else:
+        # Se as leituras anteriores estiverem vazias, atualize-as com os valores atuais
+        last_temperature = temp_atual
+        last_pressure = pressao_atual
+        last_humidity = umidade_atual
+        last_wind_speed = velocidade_vento_atual
+
+    return False
+def obter_tempo_semana():
+    cidade = entrada_cidade.get()
+    url = f'http://api.openweathermap.org/data/2.5/forecast?q={cidade}&appid=02e9b45131b0c9c0c70318f55fb977c3'
+    response = requests.get(url)
+    if response.status_code == 200:
+        dados = response.json()
+        previsoes = dados['list']
+        data_atual = datetime.now().date()
+
+        dados_dia = {}
+
+        resultado_tempo.delete('1.0', tk.END)  # Limpar o texto anterior
+        detected_changes.clear()  # Limpar mudanças detectadas
+
+        for previsao in previsoes:
+            data_previsao = datetime.fromtimestamp(previsao['dt']).date()
+            if data_previsao >= data_atual and (data_previsao - data_atual).days < 7:
+                temperatura_kelvin = previsao['main']['temp']
+                temperatura_celsius = temperatura_kelvin - 273.15
+                pressao = previsao['main']['pressure']
+                umidade = previsao['main']['humidity']
+                velocidade_vento = previsao['wind']['speed']
+
+                # Uma leitura por dia
+                if data_previsao not in dados_dia:
+                    dados_dia[data_previsao] = {
+                        'temperatura': temperatura_celsius,
+                        'pressao': pressao,
+                        'humidade': umidade,
+                        'velocidade_vento': velocidade_vento
+                    }
+
+                    verificar_mudancas(temperatura_celsius, pressao, umidade, velocidade_vento)
+
+                    # Exibir os dados na mensagem
+                    resultado_tempo.insert(tk.END,
+                                           f'Data: {data_previsao}, Temperatura: {temperatura_celsius:.2f} °C, Pressão: {pressao} hPa, Humidade: {umidade}%, Velocidade do Vento: {velocidade_vento} km/h\n')
+
+    else:
+        resultado_tempo.delete('1.0', tk.END)  # Limpar o texto anterior
+        resultado_tempo.insert(tk.END, 'Erro ao obter previsões.')
+
+
+def obter_historico_dados():
+    cidade = entrada_cidade.get()
+
+    if not cidade:
+        resultado_tempo.insert(tk.END, 'Por favor, insira o nome da cidade.')
+        return
+
+    historico = []
+
+    hoje = datetime.now().date()
+    url = f'http://api.openweathermap.org/data/2.5/forecast?q={cidade}&appid=02e9b45131b0c9c0c70318f55fb977c3'
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        dados = response.json()
+        previsoes = dados['list']
+
+        for i in range(1, 6):
+            data = hoje - timedelta(days=i)
+
+            for previsao in previsoes:
+                data_previsao = datetime.fromtimestamp(previsao['dt']).date()
+
+                if data_previsao == data:
+                    temperatura_kelvin = previsao['main']['temp']
+                    temperatura_celsius = temperatura_kelvin - 273.15
+                    pressao = previsao['main']['pressure']
+                    umidade = previsao['main']['humidity']
+                    velocidade_vento = previsao['wind']['speed']
+
+                    historico.append(
+                        f'Data: {data}, Temperatura: {temperatura_celsius:.2f} °C, Pressão: {pressao} hPa, Humidade: {umidade}%, Velocidade do Vento: {velocidade_vento} km/h')
+                    break
+    else:
+        resultado_tempo.insert(tk.END, 'Erro ao obter previsões.')
+
+    resultado_tempo.delete('1.0', tk.END)
+
+    if historico:
+        resultado_tempo.insert(tk.END, '\n'.join(historico))
+    else:
+        resultado_tempo.insert(tk.END, 'Nenhum dado disponível para o histórico.')
+
+def obter_probabilidade_catastrofes():
+    global detected_changes
+    if detected_changes:
+        # Extrair mudanças de temperatura, pressão, umidade e velocidade do vento das mudanças detectadas
+        mudancas = np.array([[float(valor.split(':')[1].split('°')[0]),
+                              float(valor.split(':')[2].split('h')[0]),
+                              float(valor.split(':')[3].split('%')[0]),
+                              float(valor.split(':')[4].split('km/h')[0])]
+                              for valor in detected_changes])
+
+        # Adicionar zeros para garantir que as mudanças tenham o mesmo número de características que o modelo espera
+        mudancas_padronizadas = np.pad(mudancas, ((0, 0), (0, 1)), mode='constant')
+
+        # Preparar os dados de entrada para o modelo
+        X = mudancas_padronizadas
+
+        # Preparar os rótulos das classes (neste caso, as probabilidades históricas de catástrofes)
+        y = np.array(list(historico_probabilidade.values()))
+
+        # Treinar um modelo de regressão logística
+        modelo = LogisticRegression(multi_class='multinomial', solver='lbfgs')
+        modelo.fit(y, list(historico_probabilidade.keys()))  # Ajuste do modelo
+
+        # Prever a probabilidade de cada catástrofe com base nas mudanças atuais
+        probabilidades = modelo.predict_proba(X)
+
+        # Exibir as probabilidades calculadas
+        resultado_catastrofes.config(text='\n'.join([f'Probabilidade de {cat}: {prob:.2f}' for cat, prob in zip(modelo.classes_, probabilidades[0])]))
+    else:
+        resultado_catastrofes.config(text='Nenhuma mudança detectada.')
+
+
+def enviar_email():
+    destinatario = entrada_email.get()
+    cidade = entrada_cidade.get()
+    assunto = f"Previsão do Tempo da Semana, {cidade} "
+
+    # Obtendo o texto exibido no botão "Tempo da Semana"
+    conteudo_tempo_semana = resultado_tempo.get("1.0", tk.END)
+    conteudo_catastrofes = resultado_catastrofes.cget("text")
+
+    # Configurações do servidor SMTP
+    smtp_server = 'smtp.gmail.com'
+    smtp_port = 587
+    remetente_email = 'apigrupo106@gmail.com'
+    remetente_senha = 'mdxl swpe cvnk hpjm'  # Melhor usar variáveis de ambiente para segurança
+
+    try:
+        # Criação da mensagem
+        msg = MIMEMultipart()
+        msg['From'] = remetente_email
+        msg['To'] = destinatario
+        msg['Subject'] = assunto
+        msg.attach(MIMEText( "Alertas de catastrofes:" "\n" + conteudo_catastrofes + "\n \n" "Tempo da Semana:"  "\n" + conteudo_tempo_semana, 'plain'))
+
+        # Conexão ao servidor SMTP e envio do email
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(remetente_email, remetente_senha)
+        server.sendmail(remetente_email, destinatario, msg.as_string())
+        server.quit()
+
+        resultado_email.config(text='Email enviado com sucesso!', foreground='green')
+    except Exception as e:
+        resultado_email.config(text=f'Erro ao enviar email: {str(e)}', foreground='red')
+
+
+def limpar_campo():
+    entrada_cidade.delete(0, tk.END)
+    resultado_cidade.config(text='')
+    resultado_tempo.delete('1.0', tk.END)
+    resultado_catastrofes.config(text='')
+    detected_changes.clear()
+
+def sair():
+    janela.destroy()
+
+def abrir_pagina_graficos():
+    cidade = entrada_cidade.get()
+    url = f'http://api.openweathermap.org/data/2.5/forecast?q={cidade}&appid=02e9b45131b0c9c0c70318f55fb977c3'
+    response = requests.get(url)
+    if response.status_code == 200:
+        dados = response.json()
+        previsoes = dados['list']
+        data_atual = datetime.now().date()
+
+        dados_dia = {}
+
+        for previsao in previsoes:
+            data_previsao = datetime.fromtimestamp(previsao['dt']).date()
+            if data_previsao >= data_atual and (data_previsao - data_atual).days < 7:
+                temperatura_kelvin = previsao['main']['temp']
+                temperatura_celsius = temperatura_kelvin - 273.15
+                pressao = previsao['main']['pressure']
+                umidade = previsao['main']['humidity']
+                velocidade_vento = previsao['wind']['speed']
+
+                # Uma leitura por dia
+                if data_previsao not in dados_dia:
+                    dados_dia[data_previsao] = {
+                        'temperatura': temperatura_celsius,
+                        'pressao': pressao,
+                        'humidade': umidade,
+                        'velocidade_vento': velocidade_vento
+                    }
+
+        # Plotar gráficos
+        fig, axs = plt.subplots(4, 1, figsize=(8, 8))
+        fig.suptitle('Previsões Semanais')
+
+        # Temperatura
+        axs[0].plot(list(dados_dia.keys()), [dados['temperatura'] for dados in dados_dia.values()], marker='o')
+        axs[0].set_ylabel('Temperatura (°C)')
+        axs[0].grid(True)
+
+        # Pressão
+        axs[1].plot(list(dados_dia.keys()), [dados['pressao'] for dados in dados_dia.values()], marker='o')
+        axs[1].set_ylabel('Pressão (hPa)')
+        axs[1].grid(True)
+
+        # Umidade
+        axs[2].plot(list(dados_dia.keys()), [dados['humidade'] for dados in dados_dia.values()], marker='o')
+        axs[2].set_ylabel('Humidade (%)')
+        axs[2].grid(True)
+
+        # Velocidade do Vento
+        axs[3].plot(list(dados_dia.keys()), [dados['velocidade_vento'] for dados in dados_dia.values()], marker='o')
+        axs[3].set_ylabel('Velocidade do Vento (km/h)')
+        axs[3].grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+
+
+
+# Criar a janela principal
+janela = tk.Tk()
+janela.title('API GRUPO 106')
+
+# Criar um frame para organizar os widgets
+frame = ttk.Frame(janela, padding="20")
+frame.grid(column=0, row=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+# Criar um rótulo e uma entrada para a cidade
+rotulo_cidade = ttk.Label(frame, text='Insira o nome da cidade:')
+rotulo_cidade.grid(column=0, row=0, sticky=tk.W)
+
+entrada_cidade = ttk.Entry(frame, width=20)
+entrada_cidade.grid(column=1, row=0, sticky=tk.W)
+
+# Criar botões
+botao_mostrar = ttk.Button(frame, text='Mostrar Cidade', command=mostrar_cidade)
+botao_mostrar.grid(column=2, row=0, sticky=tk.W, padx=5)
+
+botao_tempo = ttk.Button(frame, text='Tempo da Semana', command=obter_tempo_semana)
+botao_tempo.grid(column=3, row=0, sticky=tk.W, padx=5)
+
+botao_catastrofes = ttk.Button(frame, text='Prob. de Catástrofes', command=obter_probabilidade_catastrofes)
+botao_catastrofes.grid(column=4, row=0, sticky=tk.W, padx=5)
+
+botao_historico = ttk.Button(frame, text='Histórico de Dados', command=obter_historico_dados)
+botao_historico.grid(column=5, row=0, sticky=tk.W, padx=5)
+
+botao_limpar = ttk.Button(frame, text='Limpar', command=limpar_campo)
+botao_limpar.grid(column=7, row=0, sticky=tk.W, padx=5)
+
+botao_sair = ttk.Button(frame, text='Sair', command=sair)
+botao_sair.grid(column=8, row=0, sticky=tk.W, padx=5)
+
+# Botão para abrir a página de gráficos
+botao_graficos = ttk.Button(frame, text='Gráficos', command=abrir_pagina_graficos)
+botao_graficos.grid(column=6, row=0, sticky=tk.W, padx=5)
+
+# Rótulos para exibir os resultados
+resultado_cidade = ttk.Label(frame, text='')
+resultado_cidade.grid(column=1, row=1, columnspan=2, sticky=tk.W, pady=5)
+
+resultado_tempo = scrolledtext.ScrolledText(frame, width=110, height=7)
+resultado_tempo.grid(column=1, row=2, columnspan=8, pady=5, sticky=tk.W)
+
+resultado_catastrofes = ttk.Label(frame, text='')
+resultado_catastrofes.grid(column=1, row=3, columnspan=2, sticky=tk.W, pady=5)
+
+# Adicionando widgets para o campo de email e botão de envio na interface gráfica
+rotulo_email = ttk.Label(frame, text='Insira o email do destinatário:')
+rotulo_email.grid(column=0, row=1, sticky=tk.W)
+
+entrada_email = ttk.Entry(frame, width=30)
+entrada_email.grid(column=1, row=1, sticky=tk.W)
+
+botao_enviar_email = ttk.Button(frame, text='Enviar Email', command=enviar_email)
+botao_enviar_email.grid(column=2, row=1, sticky=tk.W, padx=5)
+
+resultado_email = ttk.Label(frame, text='')
+resultado_email.grid(column=3, row=1, columnspan=2, sticky=tk.W, pady=5)
+
+# Rodar a aplicação
+janela.mainloop()
